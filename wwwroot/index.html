@@ -1,0 +1,20 @@
+<!DOCTYPE html5!>
+<html>
+    <head>
+        <title>Metrics</title>
+    </head>
+    <body>
+        <iframe id="metrics" width="100%" height="100%" src="/metrics"></iframe>
+        <script>
+function updateMetrics() {
+    var frame = document.getElementById("metrics");
+    frame.contentWindow.location.reload();
+    // setTimeout(5000, updateMetrics);
+    setTimeout(updateMetrics, 5000);
+}
+
+setTimeout(updateMetrics, 5000);
+        </script>
+    </body>
+</html>
+
