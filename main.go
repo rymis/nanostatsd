@@ -11,12 +11,18 @@ import (
 func main() {
 	httpAddr := flag.String("web", "localhost:8888", "Web interface address to use")
 	statsdAddr := flag.String("listen", "localhost:8125", "Listend for statsd compatible stats on address")
+	static := flag.String("static", "", "Use this directory for serving static pages instead of statically compiled ones")
 	flag.Parse()
 
 	stat := NewSimpleStats()
 	http.Handle("/metrics", stat.Handler())
 	http.Handle("/stats", stat)
-	handleStaticPages()
+	if *static == "" {
+		handleStaticPages()
+	} else {
+		http.Handle("/", http.FileServer(http.Dir(*static)))
+	}
+
 	go func () {
 		http.ListenAndServe(*httpAddr, nil)
 	}()
