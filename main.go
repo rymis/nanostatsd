@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"flag"
+	"mime"
 )
 
 // Very small and simple implementation of StatsD compatible statistics collector with very simple WebUI
@@ -20,6 +21,7 @@ func main() {
 	if *static == "" {
 		handleStaticPages()
 	} else {
+		mime.AddExtensionType(".mjs", "text/javascript")
 		http.Handle("/", http.FileServer(http.Dir(*static)))
 	}
 
