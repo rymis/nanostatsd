@@ -3,6 +3,7 @@ module github.com/rymis/nanostatsd
 go 1.22.2
 
 require (
+	github.com/mattn/go-sqlite3 v1.14.33
 	github.com/syndtr/goleveldb v1.0.0
 	github.com/zserge/metric v0.1.0
 )

@@ -1,58 +1,78 @@
 package main
 
 import (
-	"github.com/zserge/metric"
-	"net/http"
 	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/rymis/nanostatsd/metricdb"
 )
 
 // Metric interoperation
 type SimpleStats struct {
-	Metrics map[string]metric.Metric
+	DB *metricdb.MetricsDB
+	mux *http.ServeMux
 }
 
-func NewSimpleStats() *SimpleStats {
+// Create new wrapper around SimpleStats
+func NewSimpleStats(db *metricdb.MetricsDB) *SimpleStats {
 	res := &SimpleStats{}
-	res.Metrics = make(map[string]metric.Metric)
+	res.DB = db
+	res.mux = http.NewServeMux()
+	res.mux.HandleFunc("/list_metrics", func (resp http.ResponseWriter, req *http.Request) {
+		metrics := res.DB.ListMetrics()
+		jsonResponse(resp, metrics)
+	})
 
 	return res
 }
 
+// Write metric to the database
 func (ss *SimpleStats) Add(msg *Message) {
-	m, ok := ss.Metrics[msg.Name]
-	if !ok {
-		switch msg.Type {
-		case MetricCounter:
-			m = metric.NewCounter("15m2s", "1h15s", "1d1m")
-		case MetricHistogram:
-			m = metric.NewHistogram("15m2s", "1h15s", "1d1m")
-		default:
-			m = metric.NewGauge("15m2s", "1h15s", "1d1m")
-		}
-
-		ss.Metrics[msg.Name] = m
+	switch msg.Type {
+	case MetricCounter:
+		ss.DB.WriteCount(msg.Name, msg.Value, msg.Tags...)
+	default:
+		ss.DB.WriteValue(msg.Name, msg.Value, msg.Tags...)
 	}
-
-	m.Add(float64(msg.Value))
-}
-
-func (ss *SimpleStats) Handler() http.Handler {
-	return metric.Handler(func () map[string]metric.Metric {
-		return ss.Metrics
-	})
 }
 
 func (ss *SimpleStats) ServeHTTP(resp http.ResponseWriter, req *http.Request) {
-	data, err := json.Marshal(ss.Metrics)
-	if err != nil {
-		resp.Header().Add("Content-Type", "text/plain")
-		resp.WriteHeader(http.StatusInternalServerError)
-		resp.Write([]byte("Error: " + err.Error()))
-		return
-	}
-
-	resp.Header().Add("Content-Type", "application/json")
-	resp.WriteHeader(http.StatusOK)
-	resp.Write(data)
+	ss.mux.ServeHTTP(resp, req)
 }
 
+func jsonRequest[T any](req *http.Request) (*T, error) {
+	if req.Header.Get("content-type") != "application/json" {
+		return nil, fmt.Errorf("Invalid content type")
+	}
+
+	decoder := json.NewDecoder(req.Body)
+	res := new(T)
+
+	err := decoder.Decode(res)
+	if err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func jsonResponse(resp http.ResponseWriter, val any) {
+	resp.Header().Add("content-type", "application/json")
+	resp.WriteHeader(http.StatusOK)
+
+	encoder := json.NewEncoder(resp)
+	encoder.Encode(&struct {
+		Res any `json:"result"`
+	}{val})
+}
+
+func errResponse(resp http.ResponseWriter, err error) {
+	resp.Header().Add("content-type", "application/json")
+	resp.WriteHeader(http.StatusOK)
+
+	encoder := json.NewEncoder(resp)
+	encoder.Encode(&struct {
+		Err string `json:"error"`
+	}{err.Error()})
+}

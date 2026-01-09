@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"flag"
 	"mime"
+
+	"github.com/rymis/nanostatsd/metricdb"
 )
 
 // Very small and simple implementation of StatsD compatible statistics collector with very simple WebUI
@@ -13,11 +15,17 @@ func main() {
 	httpAddr := flag.String("web", "localhost:8888", "Web interface address to use")
 	statsdAddr := flag.String("listen", "localhost:8125", "Listend for statsd compatible stats on address")
 	static := flag.String("static", "", "Use this directory for serving static pages instead of statically compiled ones")
+	store := flag.String("store", "metrics", "Use this directory to store metrics")
 	flag.Parse()
 
-	stat := NewSimpleStats()
-	http.Handle("/metrics", stat.Handler())
-	http.Handle("/stats", stat)
+	db, err := metricdb.NewMetricsDB(*store)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	stat := NewSimpleStats(db)
+	http.Handle("/api", http.StripPrefix("/api", stat))
 	if *static == "" {
 		handleStaticPages()
 	} else {
@@ -38,7 +46,7 @@ func main() {
 		}
 	}()
 
-	err := StatsDaemon(*statsdAddr, ch)
+	err = StatsDaemon(*statsdAddr, ch)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 	}
