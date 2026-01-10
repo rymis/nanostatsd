@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -17,6 +16,9 @@ type MetricsDB[T any] struct {
 	quantile Quant
 	table string
 	tx *sql.Tx
+	// Prepared WriteValue queries to write values faster
+	dbStmt *sql.Stmt
+	txStmt *sql.Stmt
 }
 
 type MetricDBRow[T any] struct {
@@ -25,10 +27,8 @@ type MetricDBRow[T any] struct {
 	Value *T
 }
 
-func NewMetricsDB[T any](path string, quantile Quant) (*MetricsDB[T], error) {
+func NewMetricsDB[T any](path string) (*MetricsDB[T], error) {
 	res := &MetricsDB[T]{}
-	res.quantile = quantile
-	res.table = fmt.Sprintf("metrics%d", quantile)
 
 	dbpath := filepath.Join(path, "metrics.db")
 	err := os.MkdirAll(path, 0755)
@@ -41,23 +41,23 @@ func NewMetricsDB[T any](path string, quantile Quant) (*MetricsDB[T], error) {
 		return nil, err
 	}
 
-	create := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (metric TEXT, quant INTEGER, value BLOB);", res.table)
-	_, err = db.Exec(create)
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS metrics (metric TEXT, quant INTEGER, value BLOB);")
 	if err != nil {
 		return nil, err
 	}
 
-	create = fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_metric_quant ON %s (metric, quant);", res.table, res.table)
-	_, err = db.Exec(create)
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS metrics_metric_quant ON metrics (metric, quant);")
 	if err != nil {
 		return nil, err
 	}
 
-	create = fmt.Sprintf("CREATE INDEX IF NOT EXISTS %s_quant_metric ON %s (quant, metric);", res.table, res.table)
-	_, err = db.Exec(create)
+	_, err = db.Exec("CREATE INDEX IF NOT EXISTS metrics_quant_metric ON metrics (quant, metric);")
 	if err != nil {
 		return nil, err
 	}
+
+	query, err := db.Prepare("INSERT INTO metrics VALUES (?, ?, ?);")
+	res.dbStmt = query
 
 	res.db = db
 
@@ -75,6 +75,8 @@ func (mdb *MetricsDB[T]) BeginTransaction() error {
 	}
 
 	mdb.tx = tx
+	query, err := mdb.tx.Prepare("INSERT INTO metrics VALUES (?, ?, ?);")
+	mdb.txStmt = query
 
 	return nil
 }
@@ -86,6 +88,8 @@ func (mdb *MetricsDB[T]) CommitTransaction() error {
 
 	err := mdb.tx.Commit()
 	mdb.tx = nil // If commit failed we don't want this transaction anyway
+	mdb.txStmt.Close()
+	mdb.txStmt = nil
 
 	return err
 }
@@ -97,6 +101,8 @@ func (mdb *MetricsDB[T]) RollbackTransaction() error {
 
 	err := mdb.tx.Rollback()
 	mdb.tx = nil // If rollback failed we don't want this transaction anyway
+	mdb.txStmt.Close()
+	mdb.txStmt = nil
 
 	return err
 }
@@ -106,25 +112,21 @@ func (mdb *MetricsDB[T]) WriteValue(name string, quant Quant, value *T) error {
 	if err != nil {
 		return err
 	}
-	query := fmt.Sprintf("INSERT INTO %s VALUES (?, ?, ?);", mdb.table)
 
 	if mdb.tx != nil {
-		_, err := mdb.tx.Exec(query, name, quant, data)
-		if err != nil {
-			return err
-		}
+		_, err = mdb.txStmt.Exec(name, quant, data)
 	} else {
-		_, err := mdb.db.Exec(query, name, quant, data)
-		if err != nil {
-			return err
-		}
+		_, err = mdb.dbStmt.Exec(name, quant, data)
+	}
+	if err != nil {
+		return err
 	}
 
 	return nil
 }
 
 func (mdb *MetricsDB[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T], error) {
-	query := fmt.Sprintf("SELECT metric, quant, value FROM %s WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;", mdb.table)
+	query := "SELECT metric, quant, value FROM metrics WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
 
@@ -169,8 +171,88 @@ func (mdb *MetricsDB[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T],
 	return rows, nil
 }
 
+func (mdb *MetricsDB[T]) Reduce(width, end Quant, reduce func (name string, quant Quant, bucket []T) error) error {
+	query := "SELECT metric, quant, value FROM metrics WHERE quant < ? ORDER BY metric, quant;"
+	var res *sql.Rows
+	var err error
+
+
+	if mdb.tx != nil {
+		res, err = mdb.tx.Query(query, end)
+	} else {
+		res, err = mdb.db.Query(query, end)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	defer res.Close()
+
+	curQuant := Quant(0xffffffff)
+	curName := ""
+	bucket := make([]T, 0, 64)
+	for res.Next() {
+		var name string
+		var quant Quant
+		var data []byte
+
+		err = res.Scan(&name, &quant, &data)
+		if err != nil {
+			return err
+		}
+
+		val := new(T)
+		err = gobDecode(data, val)
+		if err != nil {
+			return err
+		}
+
+		if quant - quant % width != curQuant || name != curName {
+			if len(bucket) > 0 {
+				err = reduce(curName, curQuant, bucket)
+				if err != nil {
+					return err
+				}
+			}
+
+			curQuant = quant - quant % width
+			curName = name
+			bucket = make([]T, 0, 64)
+		}
+
+		bucket = append(bucket, *val)
+	}
+
+	if len(bucket) > 0 {
+		err = reduce(curName, curQuant, bucket)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (mdb *MetricsDB[T]) RemoveBefore(quant Quant) error {
+	query := "DELETE FROM metrics WHERE quant < ?;"
+	var err error
+
+	if mdb.tx != nil {
+		_, err = mdb.tx.Exec(query, quant)
+	} else {
+		_, err = mdb.db.Exec(query, quant)
+	}
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (mdb *MetricsDB[T]) ListMetrics() ([]string, error) {
-	query := fmt.Sprintf("SELECT DISTINCT metric FROM %s;", mdb.table)
+	query := "SELECT DISTINCT metric FROM metrics;"
 	var res *sql.Rows
 	var err error
 
@@ -207,6 +289,8 @@ func (mdb *MetricsDB[T]) Close() error {
 	if mdb.tx != nil {
 		mdb.tx.Rollback()
 	}
+
+	mdb.dbStmt.Close()
 
 	return mdb.db.Close()
 }

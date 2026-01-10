@@ -89,6 +89,9 @@ func monteCarlo(t *testing.T) {
 	for i := 0; i < valCnt; i++ {
 		bin := rand.Intn(binCnt)
 		values[i] = float32(rand.NormFloat64() * 10) + centers[bin]
+		if values[i] < 0.0 {
+			values[i] = 0.0
+		}
 	}
 
 	// OK, now we have the data. Let's make histograms:

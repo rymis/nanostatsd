@@ -1,6 +1,7 @@
 package metricdb_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,7 +18,7 @@ func TestMetricsDB(t *testing.T) {
 		t.Fatal(err.Error())
 	}
 
-	db, err := metricdb.NewMetricsDB[string](path, 15)
+	db, err := metricdb.NewMetricsDB[string](path)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -127,4 +128,94 @@ func TestMetricsDB(t *testing.T) {
 	if j(ss) != "m1/m2/m3" {
 		t.Errorf("Invalid list of metrics: %#v", ss)
 	}
+}
+
+func TestMetricsDBReduce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metrics-test")
+	err := os.MkdirAll(path, 0755)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	db, err := metricdb.NewMetricsDB[string](path)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	defer func () {
+		db.Close()
+		os.RemoveAll(path)
+	}()
+
+	s := func (v string) *string {
+		res := new(string)
+		*res = v
+		return res
+	}
+
+	err = db.WriteValue("m1", 3, s("test-1-3"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = db.WriteValue("m1", 4, s("test-1-4"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = db.WriteValue("m1", 5, s("test-1-5"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = db.WriteValue("m1", 6, s("test-1-6"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = db.WriteValue("m1", 8, s("test-1-8"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	err = db.WriteValue("m2", 8, s("test-2-8"))
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+
+	err = db.Reduce(3, 20, func (name string, quant metricdb.Quant, bucket []string) error {
+		b := strings.Join(bucket, "/")
+		if name == "m1" {
+			if quant == 3 {
+				if b != "test-1-3/test-1-4/test-1-5" {
+					t.Errorf("Invalid bucket m1-3: %s", b)
+				}
+			} else if quant == 6 {
+				if b != "test-1-6/test-1-8" {
+					t.Errorf("Invalid bucket m1-6: %s", b)
+				}
+			} else {
+				t.Errorf("Invalid bucket: %s:%d", name, quant)
+			}
+		} else if name == "m2" {
+			if quant == 6 {
+				if b != "test-2-8" {
+					t.Errorf("Invalid bucket m2-6: %s", b)
+				}
+			} else {
+				t.Errorf("Invalid bucket: %s:%d", name, quant)
+			}
+		} else {
+			return fmt.Errorf("Invalid metric %s", name)
+		}
+
+		return nil
+	})
+
+	db.RemoveBefore(6)
+	res, err := db.Query("m1", 0, 100)
+	if err != nil {
+		t.Fatalf("Error: %v", err)
+	}
+
+	if len(res) != 2 {
+		t.Errorf("Remove failed")
+	}
+
+	db.Close()
 }
