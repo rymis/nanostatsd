@@ -21,12 +21,6 @@ type SqlStorage[T any] struct {
 	txStmt *sql.Stmt
 }
 
-type MetricDBRow[T any] struct {
-	Name string
-	Quant Quant
-	Value *T
-}
-
 func NewSqlStorage[T any](path string) (*SqlStorage[T], error) {
 	res := &SqlStorage[T]{}
 
@@ -125,7 +119,7 @@ func (mdb *SqlStorage[T]) WriteValue(name string, quant Quant, value *T) error {
 	return nil
 }
 
-func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T], error) {
+func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow[T], error) {
 	query := "SELECT metric, quant, value FROM metrics WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
@@ -144,7 +138,7 @@ func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T]
 
 	defer res.Close()
 
-	rows := make([]MetricDBRow[T], 0, 64)
+	rows := make([]DataStorageRow[T], 0, 64)
 	for res.Next() {
 		var name string
 		var quant Quant
@@ -161,7 +155,7 @@ func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T]
 			return nil, err
 		}
 
-		rows = append(rows, MetricDBRow[T]{
+		rows = append(rows, DataStorageRow[T]{
 			Name: name,
 			Quant: quant,
 			Value: val,
