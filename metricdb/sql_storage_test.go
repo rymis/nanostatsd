@@ -11,14 +11,14 @@ import (
 	"github.com/rymis/nanostatsd/metricdb"
 )
 
-func TestMetricsDB(t *testing.T) {
+func TestSqlStorage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics-test")
 	err := os.MkdirAll(path, 0755)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	db, err := metricdb.NewMetricsDB[string](path)
+	db, err := metricdb.NewSqlStorage[string](path)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -130,14 +130,14 @@ func TestMetricsDB(t *testing.T) {
 	}
 }
 
-func TestMetricsDBReduce(t *testing.T) {
+func TestSqlStorageReduce(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "metrics-test")
 	err := os.MkdirAll(path, 0755)
 	if err != nil {
 		t.Fatal(err.Error())
 	}
 
-	db, err := metricdb.NewMetricsDB[string](path)
+	db, err := metricdb.NewSqlStorage[string](path)
 	if err != nil {
 		t.Fatal(err.Error())
 	}

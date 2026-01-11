@@ -11,7 +11,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type MetricsDB[T any] struct {
+type SqlStorage[T any] struct {
 	db *sql.DB
 	quantile Quant
 	table string
@@ -27,8 +27,8 @@ type MetricDBRow[T any] struct {
 	Value *T
 }
 
-func NewMetricsDB[T any](path string) (*MetricsDB[T], error) {
-	res := &MetricsDB[T]{}
+func NewSqlStorage[T any](path string) (*SqlStorage[T], error) {
+	res := &SqlStorage[T]{}
 
 	dbpath := filepath.Join(path, "metrics.db")
 	err := os.MkdirAll(path, 0755)
@@ -64,7 +64,7 @@ func NewMetricsDB[T any](path string) (*MetricsDB[T], error) {
 	return res, nil
 }
 
-func (mdb *MetricsDB[T]) BeginTransaction() error {
+func (mdb *SqlStorage[T]) BeginTransaction() error {
 	if mdb.tx != nil {
 		return errors.New("Transaction is already started")
 	}
@@ -81,7 +81,7 @@ func (mdb *MetricsDB[T]) BeginTransaction() error {
 	return nil
 }
 
-func (mdb *MetricsDB[T]) CommitTransaction() error {
+func (mdb *SqlStorage[T]) CommitTransaction() error {
 	if mdb.tx == nil {
 		return errors.New("Transaction is not started")
 	}
@@ -94,7 +94,7 @@ func (mdb *MetricsDB[T]) CommitTransaction() error {
 	return err
 }
 
-func (mdb *MetricsDB[T]) RollbackTransaction() error {
+func (mdb *SqlStorage[T]) RollbackTransaction() error {
 	if mdb.tx == nil {
 		return errors.New("Transaction is not started")
 	}
@@ -107,7 +107,7 @@ func (mdb *MetricsDB[T]) RollbackTransaction() error {
 	return err
 }
 
-func (mdb *MetricsDB[T]) WriteValue(name string, quant Quant, value *T) error {
+func (mdb *SqlStorage[T]) WriteValue(name string, quant Quant, value *T) error {
 	data, err := gobEncode(value)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (mdb *MetricsDB[T]) WriteValue(name string, quant Quant, value *T) error {
 	return nil
 }
 
-func (mdb *MetricsDB[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T], error) {
+func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T], error) {
 	query := "SELECT metric, quant, value FROM metrics WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
@@ -171,7 +171,7 @@ func (mdb *MetricsDB[T]) Query(name string, begin, end Quant) ([]MetricDBRow[T],
 	return rows, nil
 }
 
-func (mdb *MetricsDB[T]) Reduce(width, end Quant, reduce func (name string, quant Quant, bucket []T) error) error {
+func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce func (name string, quant Quant, bucket []T) error) error {
 	query := "SELECT metric, quant, value FROM metrics WHERE quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
@@ -234,7 +234,7 @@ func (mdb *MetricsDB[T]) Reduce(width, end Quant, reduce func (name string, quan
 	return nil
 }
 
-func (mdb *MetricsDB[T]) RemoveBefore(quant Quant) error {
+func (mdb *SqlStorage[T]) RemoveBefore(quant Quant) error {
 	query := "DELETE FROM metrics WHERE quant < ?;"
 	var err error
 
@@ -251,7 +251,7 @@ func (mdb *MetricsDB[T]) RemoveBefore(quant Quant) error {
 	return nil
 }
 
-func (mdb *MetricsDB[T]) ListMetrics() ([]string, error) {
+func (mdb *SqlStorage[T]) ListMetrics() ([]string, error) {
 	query := "SELECT DISTINCT metric FROM metrics;"
 	var res *sql.Rows
 	var err error
@@ -285,7 +285,7 @@ func (mdb *MetricsDB[T]) ListMetrics() ([]string, error) {
 	return names, nil
 }
 
-func (mdb *MetricsDB[T]) Close() error {
+func (mdb *SqlStorage[T]) Close() error {
 	if mdb.tx != nil {
 		mdb.tx.Rollback()
 	}
