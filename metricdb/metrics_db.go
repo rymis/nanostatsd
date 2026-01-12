@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type MetricsDB struct {
@@ -35,8 +37,14 @@ type MetricsDB struct {
 }
 
 type MetricWithTags struct {
-	Metric string
-	Tags []string
+	Metric string `json:"metric"`
+	Tags []string `json:"tags,omitempty"`
+}
+
+/// Quant + Count
+type QuantCount struct {
+	Quant Quant `json:"quant"`
+	Count float32 `json:"count"`
 }
 
 type MetricsDBConfig struct {
@@ -114,7 +122,24 @@ func (ms *MetricsDB) IncrementCount(name string, value float32, tags ...string) 
 	}
 }
 
-func (ms *MetricsDB) QueryHistogram(name string, begin, end Quant) []ExtendedQuantHistogram {
+func (mdb *MetricsDB) QueryHistogram(name string, tags []string, begin, end time.Time) []ExtendedQuantHistogram {
+	b := TimeToQuant(begin)
+	e := TimeToQuant(end)
+	// TODO: approximate value if we have more than 3 tags
+	nm := make([]string, 0, 4)
+	nm = append(nm, name)
+	for i := 0; i < len(tags) && i < 3; i++ {
+		nm = append(nm, tags[i])
+	}
+
+	if len(nm) > 2 {
+		sort.Strings(nm[1:])
+	}
+
+	return mdb.queryHistogram(strings.Join(nm, "#"), b, e)
+}
+
+func (ms *MetricsDB) queryHistogram(name string, begin, end Quant) []ExtendedQuantHistogram {
 	ms.Lock.Lock()
 	defer ms.Lock.Unlock()
 
@@ -167,7 +192,24 @@ func queryStorage(s DataStorage[QuantHistogram], name string, begin, end Quant) 
 	return res
 }
 
-func (ms *MetricsDB) QueryCounts(name string, begin, end Quant) []QuantCount {
+func (mdb *MetricsDB) QueryCounts(name string, tags []string,  begin, end time.Time) []QuantCount {
+	b := TimeToQuant(begin)
+	e := TimeToQuant(end)
+	// TODO: approximate value if we have more than 3 tags
+	nm := make([]string, 0, 4)
+	nm = append(nm, name)
+	for i := 0; i < len(tags) && i < 3; i++ {
+		nm = append(nm, tags[i])
+	}
+
+	if len(nm) > 2 {
+		sort.Strings(nm[1:])
+	}
+
+	return mdb.queryCounts(strings.Join(nm, "#"), b, e)
+}
+
+func (ms *MetricsDB) queryCounts(name string, begin, end Quant) []QuantCount {
 	ms.Lock.Lock()
 	defer ms.Lock.Unlock()
 
@@ -253,10 +295,6 @@ func (mdb *MetricsDB) ListMetrics() []MetricWithTags {
 	}
 
 	return res
-}
-
-func (sts *MetricsDB) Periodic() error {
-	return nil
 }
 
 func NewMetricsDB(cfg *MetricsDBConfig) (*MetricsDB, error) {
