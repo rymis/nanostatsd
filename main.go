@@ -18,7 +18,11 @@ func main() {
 	store := flag.String("store", "metrics", "Use this directory to store metrics")
 	flag.Parse()
 
-	db, err := metricdb.NewMetricsDB(*store)
+	cfg := &metricdb.MetricsDBConfig{}
+	cfg.Path = *store
+	cfg.LongTermStorage = "sql"
+	cfg.MiddleTermStorage = "sql"
+	db, err := metricdb.NewMetricsDB(cfg)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
 		return

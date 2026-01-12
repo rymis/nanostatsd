@@ -31,7 +31,7 @@ func NewSimpleStats(db *metricdb.MetricsDB) *SimpleStats {
 func (ss *SimpleStats) Add(msg *Message) {
 	switch msg.Type {
 	case MetricCounter:
-		ss.DB.WriteCount(msg.Name, msg.Value, msg.Tags...)
+		ss.DB.IncrementCount(msg.Name, msg.Value, msg.Tags...)
 	default:
 		ss.DB.WriteValue(msg.Name, msg.Value, msg.Tags...)
 	}

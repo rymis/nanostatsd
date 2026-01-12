@@ -12,12 +12,12 @@ type MemStorage[T any] struct {
 	tx map[string]*TimeStorage[T]
 }
 
-func NewMemStorage[T any](path string) (*MemStorage[T], error) {
+func NewMemStorage[T any]() *MemStorage[T] {
 	res := &MemStorage[T]{}
 
 	res.data = make(map[string]*TimeStorage[T])
 
-	return res, nil
+	return res
 }
 
 func (mdb *MemStorage[T]) BeginTransaction() error {
