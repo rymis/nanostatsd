@@ -29,7 +29,7 @@ func main() {
 	}
 
 	stat := NewSimpleStats(db)
-	http.Handle("/api", http.StripPrefix("/api", stat))
+	http.Handle("/api/", http.StripPrefix("/api", stat))
 	if *static == "" {
 		handleStaticPages()
 	} else {
