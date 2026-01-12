@@ -2,8 +2,6 @@ package metricdb_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -12,20 +10,10 @@ import (
 )
 
 func TestMemStorage(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "metrics-test")
-	err := os.MkdirAll(path, 0755)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	db, err := metricdb.NewMemStorage[string](path)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	db := metricdb.NewMemStorage[string]()
 
 	defer func () {
 		db.Close()
-		os.RemoveAll(path)
 	}()
 
 	s := func (v string) *string {
@@ -56,7 +44,7 @@ func TestMemStorage(t *testing.T) {
 	}
 
 	// Try to insert data without transaction:
-	err = db.WriteValue("m1", 1, s("test-1-1"))
+	err := db.WriteValue("m1", 1, s("test-1-1"))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
@@ -131,20 +119,10 @@ func TestMemStorage(t *testing.T) {
 }
 
 func TestMemStorageReduce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "metrics-test")
-	err := os.MkdirAll(path, 0755)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
-
-	db, err := metricdb.NewMemStorage[string](path)
-	if err != nil {
-		t.Fatal(err.Error())
-	}
+	db := metricdb.NewMemStorage[string]()
 
 	defer func () {
 		db.Close()
-		os.RemoveAll(path)
 	}()
 
 	s := func (v string) *string {
@@ -153,7 +131,7 @@ func TestMemStorageReduce(t *testing.T) {
 		return res
 	}
 
-	err = db.WriteValue("m1", 3, s("test-1-3"))
+	err := db.WriteValue("m1", 3, s("test-1-3"))
 	if err != nil {
 		t.Fatal(err.Error())
 	}
