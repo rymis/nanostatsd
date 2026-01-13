@@ -33,12 +33,14 @@ type MetricsDB struct {
 
 	queue chan cmdMsg
 
-	tagsCache map[string]map[string]bool
+	tagsCache map[string]map[string]uint8
 }
 
 type MetricWithTags struct {
 	Metric string `json:"metric"`
 	Tags []string `json:"tags,omitempty"`
+	HasCount bool `json:"has_count"`
+	HasValue bool `json:"has_value"`
 }
 
 /// Quant + Count
@@ -64,6 +66,9 @@ type cmdMsg struct {
 	Values map[string][]float32
 	Counts map[string]float32
 }
+
+const hasCountFlag uint8 = 1
+const hasValueFlag uint8 = 2
 
 func (ms *MetricsDB) WriteValue(name string, value float32, tags ...string) {
 	ms.Lock.Lock()
@@ -309,7 +314,7 @@ func NewMetricsDB(cfg *MetricsDBConfig) (*MetricsDB, error) {
 		queue: make(chan cmdMsg, 16),
 		numOfQms: 4 * 60 * 24, // 1 day of 15 second intervals
 		numOfQhs: 4 * 24 * 180, // Half a year of metrics to store
-		tagsCache: make(map[string]map[string]bool),
+		tagsCache: make(map[string]map[string]uint8),
 	}
 
 	path, err := filepath.Abs(".")
@@ -417,15 +422,15 @@ func splitMetricTags(metric string) (string, []string) {
 	return ms[0], ms[1:]
 }
 
-func (mdb *MetricsDB) updateMetrics(metric string, tags []string) {
+func (mdb *MetricsDB) updateMetrics(metric string, tags []string, flag uint8) {
 	m, ok := mdb.tagsCache[metric]
 	if !ok {
-		m = make(map[string]bool)
+		m = make(map[string]uint8)
 		mdb.tagsCache[metric] = m
 	}
 
 	for _, t := range tags {
-		m[t] = true
+		m[t] |= flag
 	}
 }
 
@@ -435,12 +440,12 @@ func (mdb *MetricsDB) updateMetricCache() {
 
 	for nm := range mdb.values {
 		name, tags = splitMetricTags(nm)
-		mdb.updateMetrics(name, tags)
+		mdb.updateMetrics(name, tags, hasValueFlag)
 	}
 
 	for nm := range mdb.Counts {
 		name, tags = splitMetricTags(nm)
-		mdb.updateMetrics(name, tags)
+		mdb.updateMetrics(name, tags, hasCountFlag)
 	}
 
 	ms, err := mdb.qmMetrics.ListMetrics()
@@ -449,7 +454,7 @@ func (mdb *MetricsDB) updateMetricCache() {
 	} else {
 		for _, m := range ms {
 			name, tags = splitMetricTags(m)
-			mdb.updateMetrics(name, tags)
+			mdb.updateMetrics(name, tags, hasValueFlag)
 		}
 	}
 
@@ -459,7 +464,7 @@ func (mdb *MetricsDB) updateMetricCache() {
 	} else {
 		for _, m := range ms {
 			name, tags = splitMetricTags(m)
-			mdb.updateMetrics(name, tags)
+			mdb.updateMetrics(name, tags, hasCountFlag)
 		}
 	}
 
@@ -469,7 +474,7 @@ func (mdb *MetricsDB) updateMetricCache() {
 	} else {
 		for _, m := range ms {
 			name, tags = splitMetricTags(m)
-			mdb.updateMetrics(name, tags)
+			mdb.updateMetrics(name, tags, hasValueFlag)
 		}
 	}
 
@@ -479,7 +484,7 @@ func (mdb *MetricsDB) updateMetricCache() {
 	} else {
 		for _, m := range ms {
 			name, tags = splitMetricTags(m)
-			mdb.updateMetrics(name, tags)
+			mdb.updateMetrics(name, tags, hasCountFlag)
 		}
 	}
 }

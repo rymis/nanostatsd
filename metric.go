@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/rymis/nanostatsd/metricdb"
 )
@@ -19,9 +23,52 @@ func NewSimpleStats(db *metricdb.MetricsDB) *SimpleStats {
 	res := &SimpleStats{}
 	res.DB = db
 	res.mux = http.NewServeMux()
+
 	res.mux.HandleFunc("/list_metrics", func (resp http.ResponseWriter, req *http.Request) {
 		metrics := res.DB.ListMetrics()
 		jsonResponse(resp, metrics)
+	})
+
+	res.mux.HandleFunc("/values", func (resp http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		nm := q.Get("name")
+		if nm == "" {
+			errResponse(resp, fmt.Errorf("Name is not specified"))
+		}
+
+		begin := parseQueryTime(q.Get("from"), time.Now().Add(-6 * time.Hour))
+		end := parseQueryTime(q.Get("to"), time.Now())
+
+		tagsArg := q.Get("tags")
+		var tags []string
+		if tagsArg != "" {
+			tags = strings.Split(tagsArg, ",")
+		}
+
+		res := db.QueryHistogram(nm, tags, begin, end)
+
+		jsonResponse(resp, res)
+	})
+
+	res.mux.HandleFunc("/counts", func (resp http.ResponseWriter, req *http.Request) {
+		q := req.URL.Query()
+		nm := q.Get("name")
+		if nm == "" {
+			errResponse(resp, fmt.Errorf("Name is not specified"))
+		}
+
+		begin := parseQueryTime(q.Get("from"), time.Now().Add(-6 * time.Hour))
+		end := parseQueryTime(q.Get("to"), time.Now())
+
+		tagsArg := q.Get("tags")
+		var tags []string
+		if tagsArg != "" {
+			tags = strings.Split(tagsArg, ",")
+		}
+
+		res := db.QueryCounts(nm, tags, begin, end)
+
+		jsonResponse(resp, res)
 	})
 
 	return res
@@ -75,4 +122,26 @@ func errResponse(resp http.ResponseWriter, err error) {
 	encoder.Encode(&struct {
 		Err string `json:"error"`
 	}{err.Error()})
+}
+
+var floatTimeRx = regexp.MustCompile(`^[+-]?[0-9]?\.?[0-9]+([eE][+-]?[0-9]+)?$`)
+var isoTimeRx = regexp.MustCompile(`^[0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9].*`)
+func parseQueryTime(t string, def time.Time) time.Time {
+	if floatTimeRx.MatchString(t) {
+		ft, err := strconv.ParseFloat(t, 64)
+		if err != nil {
+			return def
+		}
+
+		return time.UnixMilli(int64(ft))
+	} else if isoTimeRx.MatchString(t) {
+		d, err := time.Parse(time.RFC822, t)
+		if err != nil {
+			return def
+		}
+
+		return d
+	}
+
+	return def
 }
