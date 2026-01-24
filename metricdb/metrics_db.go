@@ -292,9 +292,16 @@ func (mdb *MetricsDB) ListMetrics() []MetricWithTags {
 			Metric: m,
 		}
 
-		for t := range tags {
+		for t, kind := range tags {
 			mt.Tags = append(mt.Tags, t)
+			if kind & hasCountFlag != 0 {
+				mt.HasCount = true
+			}
+			if kind & hasValueFlag != 0 {
+				mt.HasValue = true
+			}
 		}
+
 
 		res = append(res, mt)
 	}
