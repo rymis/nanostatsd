@@ -144,7 +144,7 @@ func testStorageReduceImpl(testName string, db metricdb.DataStorage[string], t *
 		t.Fatalf("[%s]: %s", testName, err.Error())
 	}
 
-	err = db.Reduce(3, 20, func (name string, quant metricdb.Quant, bucket []string) error {
+	err = db.Reduce(3, 20, func (name string, tags []string, quant metricdb.Quant, bucket []string) error {
 		b := strings.Join(bucket, "/")
 		if name == "m1" {
 			if quant == 3 {
@@ -182,6 +182,55 @@ func testStorageReduceImpl(testName string, db metricdb.DataStorage[string], t *
 	if len(res) != 2 {
 		t.Errorf("[%s]: Remove failed", testName)
 	}
+}
 
-	db.Close()
+func testStorageTagsImpl(testName string, db metricdb.DataStorage[string], t *testing.T) {
+	s := func (v string) *string {
+		res := new(string)
+		*res = v
+		return res
+	}
+
+	tags := func (t ...string) []string {
+		return t
+	}
+
+	err := db.WriteValue("m1", tags("a"), 1, s("ta"))
+	if err != nil {
+		t.Fatalf("[%s]: %s", testName, err.Error())
+	}
+	err = db.WriteValue("m1", tags("b"), 1, s("tb"))
+	if err != nil {
+		t.Fatalf("[%s]: %s", testName, err.Error())
+	}
+	err = db.WriteValue("m1", tags("a", "b"), 1, s("tab"))
+	if err != nil {
+		t.Fatalf("[%s]: %s", testName, err.Error())
+	}
+
+	err = db.Reduce(3, 100, func (name string, tags []string, quant metricdb.Quant, bucket []string) error {
+		b := strings.Join(bucket, "/")
+		ts := strings.Join(tags, "#")
+		if name == "m1" {
+			if ts == "a" {
+				if b != "ta/tab" {
+					t.Errorf("[%s]: Invalid bucket a: %s", testName, b)
+				}
+			} else if ts == "b" {
+				if b != "tab/tb" {
+					t.Errorf("[%s]: Invalid bucket b: %s", testName, b)
+				}
+			} else if ts == "a#b" {
+				if b != "tab" {
+					t.Errorf("[%s]: Invalid bucket ab: %s", testName, b)
+				}
+			} else {
+				t.Errorf("[%s]: Invalid bucket: %s:%d", testName, name, quant)
+			}
+		} else {
+			return fmt.Errorf("[%s]: Invalid metric %s", testName, name)
+		}
+
+		return nil
+	})
 }

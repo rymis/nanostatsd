@@ -25,3 +25,13 @@ func TestMemStorageReduce(t *testing.T) {
 
 	testStorageReduceImpl("MEM", db, t)
 }
+
+func TestMemStorageTags(t *testing.T) {
+	db := metricdb.NewMemStorage[string]()
+
+	defer func () {
+		db.Close()
+	}()
+
+	testStorageTagsImpl("MEM", db, t)
+}

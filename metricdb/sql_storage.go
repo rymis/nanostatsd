@@ -172,7 +172,7 @@ func (mdb *SqlStorage[T]) Query(name string, tags []string, begin, end Quant) ([
 	return rows, nil
 }
 
-func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce func (name string, quant Quant, bucket []T) error) error {
+func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) error {
 	query := "SELECT metric, quant, value FROM metrics WHERE quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
@@ -211,7 +211,8 @@ func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce func (name string, qua
 
 		if quant - quant % width != curQuant || name != curName {
 			if len(bucket) > 0 {
-				err = reduce(curName, curQuant, bucket)
+				// TODO: tags
+				err = reduce(curName, nil, curQuant, bucket)
 				if err != nil {
 					return err
 				}
@@ -226,7 +227,8 @@ func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce func (name string, qua
 	}
 
 	if len(bucket) > 0 {
-		err = reduce(curName, curQuant, bucket)
+		// TODO: tags
+		err = reduce(curName, nil, curQuant, bucket)
 		if err != nil {
 			return err
 		}

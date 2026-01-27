@@ -122,7 +122,7 @@ func (mdb *MemStorage[T]) Query(name string, tags []string, begin, end Quant) ([
 	return rows, nil
 }
 
-func (mdb *MemStorage[T]) Reduce(width, end Quant, reduce func (name string, quant Quant, bucket []T) error) error {
+func (mdb *MemStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) error {
 	// In this implementation I ignore transactions
 	for name, ts := range mdb.data {
 		if len(ts.Values) == 0 {
@@ -146,7 +146,8 @@ func (mdb *MemStorage[T]) Reduce(width, end Quant, reduce func (name string, qua
 				buck[i] = elements[i].Value.Value
 			}
 
-			err := reduce(name, q, buck)
+			// TODO: tags
+			err := reduce(name, nil, q, buck)
 			if err != nil {
 				return err
 			}
