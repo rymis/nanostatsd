@@ -8,14 +8,19 @@ type MemStorage[T any] struct {
 	quantile Quant
 	table string
 
-	data map[string]*TimeStorage[T]
-	tx map[string]*TimeStorage[T]
+	data map[string]*TimeStorage[memStorageItem[T]]
+	tx map[string]*TimeStorage[memStorageItem[T]]
+}
+
+type memStorageItem[T any] struct {
+	Value T
+	Tags string
 }
 
 func NewMemStorage[T any]() *MemStorage[T] {
 	res := &MemStorage[T]{}
 
-	res.data = make(map[string]*TimeStorage[T])
+	res.data = make(map[string]*TimeStorage[memStorageItem[T]])
 
 	return res
 }
@@ -25,7 +30,7 @@ func (mdb *MemStorage[T]) BeginTransaction() error {
 		return errors.New("Transaction is already started")
 	}
 
-	mdb.tx = make(map[string]*TimeStorage[T])
+	mdb.tx = make(map[string]*TimeStorage[memStorageItem[T]])
 
 	return nil
 }
@@ -59,30 +64,33 @@ func (mdb *MemStorage[T]) RollbackTransaction() error {
 	return nil
 }
 
-func (mdb *MemStorage[T]) WriteValue(name string, quant Quant, value *T) error {
-	var ts *TimeStorage[T]
+func (mdb *MemStorage[T]) WriteValue(name string, tags []string, quant Quant, value *T) error {
+	var ts *TimeStorage[memStorageItem[T]]
 	var ok bool
 
 	if mdb.tx != nil {
 		ts, ok = mdb.tx[name]
 		if !ok {
-			ts = NewTimeStorage[T]()
+			ts = NewTimeStorage[memStorageItem[T]]()
 			mdb.tx[name] = ts
 		}
 	} else {
 		ts, ok = mdb.data[name]
 		if !ok {
-			ts = NewTimeStorage[T]()
+			ts = NewTimeStorage[memStorageItem[T]]()
 			mdb.data[name] = ts
 		}
 	}
 
-	ts.Append(quant, *value)
+	ts.Append(quant, memStorageItem[T]{
+		Value: *value,
+		Tags: normalizeTags(tags),
+	})
 
 	return nil
 }
 
-func (mdb *MemStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow[T], error) {
+func (mdb *MemStorage[T]) Query(name string, tags []string, begin, end Quant) ([]DataStorageRow[T], error) {
 	rows := make([]DataStorageRow[T], 0, 64)
 	if mdb.tx != nil {
 		ts, ok := mdb.tx[name]
@@ -91,7 +99,8 @@ func (mdb *MemStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow
 				rows = append(rows, DataStorageRow[T]{
 					Name: name,
 					Quant: el.Quant,
-					Value: &el.Value,
+					Tags: el.Value.Tags,
+					Value: &el.Value.Value,
 				})
 			}
 		}
@@ -104,7 +113,8 @@ func (mdb *MemStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow
 			rows = append(rows, DataStorageRow[T]{
 				Name: name,
 				Quant: el.Quant,
-				Value: &el.Value,
+				Tags: el.Value.Tags,
+				Value: &el.Value.Value,
 			})
 		}
 	}
@@ -131,8 +141,9 @@ func (mdb *MemStorage[T]) Reduce(width, end Quant, reduce func (name string, qua
 			}
 			buck := make([]T, len(elements))
 
+			// TODO: take tags into account here
 			for i := range elements {
-				buck[i] = elements[i].Value
+				buck[i] = elements[i].Value.Value
 			}
 
 			err := reduce(name, q, buck)

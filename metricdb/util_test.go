@@ -29,3 +29,21 @@ func TestTagsNormalize(t *testing.T) {
 		t.Errorf("Expected '#t1#t2#t3#', has '%s'", r)
 	}
 }
+
+func TestTagsMatch(t *testing.T) {
+	j := func (nt string, s ...string) bool {
+		return matchTags(s, nt)
+	}
+
+	if !j("") {
+		t.Errorf("Expected match empty ''")
+	}
+
+	if j("", "t1") {
+		t.Errorf("Expected not match")
+	}
+
+	if !j("#t1#t2#t3#", "t1", "t3") {
+		t.Errorf("Expected match")
+	}
+}

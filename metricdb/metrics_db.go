@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -77,26 +76,11 @@ func (ms *MetricsDB) WriteValue(name string, value float32, tags ...string) {
 	ms.checkQuant()
 
 	// Add direct metric:
-	ms.values[name] = append(ms.values[name], value)
-
-	// And up to 3 tag combinations
-	for _, t1 := range tags {
-		name1 := fmt.Sprintf("%s#%s", name, t1)
-		ms.values[name1] = append(ms.values[name1], value)
-		for _, t2 := range tags {
-			if t1 < t2 {
-				name2 := fmt.Sprintf("%s#%s", name1, t2)
-				ms.values[name2] = append(ms.values[name2], value)
-
-				for _, t3 := range tags {
-					if t2 < t3 {
-						name3 := fmt.Sprintf("%s#%s", name2, t3)
-						ms.values[name3] = append(ms.values[name3], value)
-					}
-				}
-			}
-		}
+	if len(tags) > 0 {
+		name = fmt.Sprintf("%s#%s", name, normalizeTags(tags))
 	}
+
+	ms.values[name] = append(ms.values[name], value)
 }
 
 func (ms *MetricsDB) IncrementCount(name string, value float32, tags ...string) {
@@ -130,21 +114,11 @@ func (ms *MetricsDB) IncrementCount(name string, value float32, tags ...string) 
 func (mdb *MetricsDB) QueryHistogram(name string, tags []string, begin, end time.Time) []ExtendedQuantHistogram {
 	b := TimeToQuant(begin)
 	e := TimeToQuant(end)
-	// TODO: approximate value if we have more than 3 tags
-	nm := make([]string, 0, 4)
-	nm = append(nm, name)
-	for i := 0; i < len(tags) && i < 3; i++ {
-		nm = append(nm, tags[i])
-	}
 
-	if len(nm) > 2 {
-		sort.Strings(nm[1:])
-	}
-
-	return mdb.queryHistogram(strings.Join(nm, "#"), b, e)
+	return mdb.queryHistogram(name, tags, b, e)
 }
 
-func (ms *MetricsDB) queryHistogram(name string, begin, end Quant) []ExtendedQuantHistogram {
+func (ms *MetricsDB) queryHistogram(name string, tags []string, begin, end Quant) []ExtendedQuantHistogram {
 	ms.Lock.Lock()
 	defer ms.Lock.Unlock()
 
@@ -158,11 +132,11 @@ func (ms *MetricsDB) queryHistogram(name string, begin, end Quant) []ExtendedQua
 	var res []ExtendedQuantHistogram
 
 	if ltEndQuant >= begin {
-		res = queryStorage(ms.qmMetrics, name, begin, ltEndQuant)
+		res = queryStorage(ms.qmMetrics, name, tags, begin, ltEndQuant)
 	}
 
 	if begin < ms.CurrentQuant - Quant(ms.numOfQms) {
-		res = append(res, queryStorage(ms.qhMetrics, name, begin, ltEndQuant)...)
+		res = append(res, queryStorage(ms.qhMetrics, name, tags, begin, ltEndQuant)...)
 	}
 
 	// Check if we need to add current metrics
@@ -180,8 +154,8 @@ func (ms *MetricsDB) queryHistogram(name string, begin, end Quant) []ExtendedQua
 	return res
 }
 
-func queryStorage(s DataStorage[QuantHistogram], name string, begin, end Quant) []ExtendedQuantHistogram {
-	data, err := s.Query(name, begin, end)
+func queryStorage(s DataStorage[QuantHistogram], name string, tags []string, begin, end Quant) []ExtendedQuantHistogram {
+	data, err := s.Query(name, tags, begin, end)
 	if err != nil {
 		log.Printf("Storage error: %v", err)
 		return nil
@@ -200,21 +174,11 @@ func queryStorage(s DataStorage[QuantHistogram], name string, begin, end Quant) 
 func (mdb *MetricsDB) QueryCounts(name string, tags []string,  begin, end time.Time) []QuantCount {
 	b := TimeToQuant(begin)
 	e := TimeToQuant(end)
-	// TODO: approximate value if we have more than 3 tags
-	nm := make([]string, 0, 4)
-	nm = append(nm, name)
-	for i := 0; i < len(tags) && i < 3; i++ {
-		nm = append(nm, tags[i])
-	}
 
-	if len(nm) > 2 {
-		sort.Strings(nm[1:])
-	}
-
-	return mdb.queryCounts(strings.Join(nm, "#"), b, e)
+	return mdb.queryCounts(name, tags, b, e)
 }
 
-func (ms *MetricsDB) queryCounts(name string, begin, end Quant) []QuantCount {
+func (ms *MetricsDB) queryCounts(name string, tags []string, begin, end Quant) []QuantCount {
 	ms.Lock.Lock()
 	defer ms.Lock.Unlock()
 
@@ -228,11 +192,11 @@ func (ms *MetricsDB) queryCounts(name string, begin, end Quant) []QuantCount {
 	var res []QuantCount
 
 	if ltEndQuant >= begin {
-		res = queryStorageCounts(ms.qmCounts, name, begin, ltEndQuant)
+		res = queryStorageCounts(ms.qmCounts, name, tags, begin, ltEndQuant)
 	}
 
 	if begin < ms.CurrentQuant - Quant(ms.numOfQms) {
-		res = append(res, queryStorageCounts(ms.qhCounts, name, begin, ltEndQuant)...)
+		res = append(res, queryStorageCounts(ms.qhCounts, name, tags, begin, ltEndQuant)...)
 	}
 
 	// Check if we need to add current metrics
@@ -249,8 +213,8 @@ func (ms *MetricsDB) queryCounts(name string, begin, end Quant) []QuantCount {
 	return res
 }
 
-func queryStorageCounts(s DataStorage[float64], name string, begin, end Quant) []QuantCount {
-	data, err := s.Query(name, begin, end)
+func queryStorageCounts(s DataStorage[float64], name string, tags []string, begin, end Quant) []QuantCount {
+	data, err := s.Query(name, tags, begin, end)
 	if err != nil {
 		log.Printf("Storage error: %v", err)
 		return nil
@@ -410,13 +374,15 @@ func (ms *MetricsDB) worker() {
 			case cmdMsgMergeQuant:
 				for name, vals := range msg.Values {
 					qh := NewQuantHistogram(vals)
-					ms.qmMetrics.WriteValue(name, msg.Quant, qh)
+					nm, tags := splitNameTags(name)
+					ms.qmMetrics.WriteValue(nm, tags, msg.Quant, qh)
 				}
 				msg.Values = nil // Make it possible to free memory earlier
 
 				for name, cnt := range msg.Counts {
 					val := float64(cnt / 15.0)
-					ms.qmCounts.WriteValue(name, msg.Quant, &val)
+					nm, tags := splitNameTags(name)
+					ms.qmCounts.WriteValue(nm, tags, msg.Quant, &val)
 				}
 				msg.Counts = nil
 			break;

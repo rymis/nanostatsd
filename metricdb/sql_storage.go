@@ -35,7 +35,7 @@ func NewSqlStorage[T any](path string) (*SqlStorage[T], error) {
 		return nil, err
 	}
 
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS metrics (metric TEXT, quant INTEGER, value BLOB);")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS metrics (metric TEXT, tags TEXT, quant INTEGER, value BLOB);")
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +50,7 @@ func NewSqlStorage[T any](path string) (*SqlStorage[T], error) {
 		return nil, err
 	}
 
-	query, err := db.Prepare("INSERT INTO metrics VALUES (?, ?, ?);")
+	query, err := db.Prepare("INSERT INTO metrics VALUES (?, ?, ?, ?);")
 	res.dbStmt = query
 
 	res.db = db
@@ -69,7 +69,7 @@ func (mdb *SqlStorage[T]) BeginTransaction() error {
 	}
 
 	mdb.tx = tx
-	query, err := mdb.tx.Prepare("INSERT INTO metrics VALUES (?, ?, ?);")
+	query, err := mdb.tx.Prepare("INSERT INTO metrics VALUES (?, ?, ?, ?);")
 	mdb.txStmt = query
 
 	return nil
@@ -101,16 +101,18 @@ func (mdb *SqlStorage[T]) RollbackTransaction() error {
 	return err
 }
 
-func (mdb *SqlStorage[T]) WriteValue(name string, quant Quant, value *T) error {
+func (mdb *SqlStorage[T]) WriteValue(name string, tags []string, quant Quant, value *T) error {
 	data, err := gobEncode(value)
 	if err != nil {
 		return err
 	}
 
+	tt := normalizeTags(tags)
+
 	if mdb.tx != nil {
-		_, err = mdb.txStmt.Exec(name, quant, data)
+		_, err = mdb.txStmt.Exec(name, tt, quant, data)
 	} else {
-		_, err = mdb.dbStmt.Exec(name, quant, data)
+		_, err = mdb.dbStmt.Exec(name, tt, quant, data)
 	}
 	if err != nil {
 		return err
@@ -119,8 +121,8 @@ func (mdb *SqlStorage[T]) WriteValue(name string, quant Quant, value *T) error {
 	return nil
 }
 
-func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow[T], error) {
-	query := "SELECT metric, quant, value FROM metrics WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;"
+func (mdb *SqlStorage[T]) Query(name string, tags []string, begin, end Quant) ([]DataStorageRow[T], error) {
+	query := "SELECT metric, tags, quant, value FROM metrics WHERE metric == ? AND quant >= ? AND quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
 
@@ -143,10 +145,15 @@ func (mdb *SqlStorage[T]) Query(name string, begin, end Quant) ([]DataStorageRow
 		var name string
 		var quant Quant
 		var data []byte
+		var rowTags string
 
-		err = res.Scan(&name, &quant, &data)
+		err = res.Scan(&name, &rowTags, &quant, &data)
 		if err != nil {
 			return nil, err
+		}
+
+		if !matchTags(tags, rowTags) {
+			continue
 		}
 
 		val := new(T)

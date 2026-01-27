@@ -46,3 +46,33 @@ func unique(sortedTags []string) []string {
 
 	return sortedTags[:j]
 }
+
+// Check if string matches tags stored in storage
+func matchTags(tags []string, storageTags string) bool {
+	if len(tags) == 0 {
+		return true
+	}
+
+	st := make(map[string]bool)
+	for _, t := range strings.Split(storageTags, "#") {
+		if t == "" {
+			continue
+		}
+		st[t] = true
+	}
+
+	for _, t := range tags {
+		r, ok := st[t]
+		if !ok || !r {
+			return false
+		}
+	}
+
+	return true
+}
+
+// Split name and tags from name#t1#t2 form
+func splitNameTags(nmt string) (string, []string) {
+	res := strings.Split(nmt, "#")
+	return res[0], res[1:]
+}
