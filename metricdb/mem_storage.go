@@ -139,17 +139,18 @@ func (mdb *MemStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) 
 			if len(elements) == 0 {
 				continue
 			}
-			buck := make([]T, len(elements))
 
-			// TODO: take tags into account here
+			buckets := make(map[string][]T)
+
 			for i := range elements {
-				buck[i] = elements[i].Value.Value
+				buckets[elements[i].Value.Tags] = append(buckets[elements[i].Value.Tags], elements[i].Value.Value)
 			}
 
-			// TODO: tags
-			err := reduce(name, nil, q, buck)
-			if err != nil {
-				return err
+			for tags, buck := range buckets {
+				err := reduce(name, splitTagsString(tags), q, buck)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

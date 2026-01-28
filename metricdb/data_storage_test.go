@@ -213,11 +213,11 @@ func testStorageTagsImpl(testName string, db metricdb.DataStorage[string], t *te
 		ts := strings.Join(tags, "#")
 		if name == "m1" {
 			if ts == "a" {
-				if b != "ta/tab" {
+				if b != "ta" {
 					t.Errorf("[%s]: Invalid bucket a: %s", testName, b)
 				}
 			} else if ts == "b" {
-				if b != "tab/tb" {
+				if b != "tb" {
 					t.Errorf("[%s]: Invalid bucket b: %s", testName, b)
 				}
 			} else if ts == "a#b" {

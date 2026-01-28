@@ -173,7 +173,7 @@ func (mdb *SqlStorage[T]) Query(name string, tags []string, begin, end Quant) ([
 }
 
 func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) error {
-	query := "SELECT metric, quant, value FROM metrics WHERE quant < ? ORDER BY metric, quant;"
+	query := "SELECT metric, tags, quant, value FROM metrics WHERE quant < ? ORDER BY metric, quant;"
 	var res *sql.Rows
 	var err error
 
@@ -192,13 +192,14 @@ func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) 
 
 	curQuant := Quant(0xffffffff)
 	curName := ""
-	bucket := make([]T, 0, 64)
+	bucket := make(map[string][]T)
 	for res.Next() {
 		var name string
 		var quant Quant
 		var data []byte
+		var tags string
 
-		err = res.Scan(&name, &quant, &data)
+		err = res.Scan(&name, &tags, &quant, &data)
 		if err != nil {
 			return err
 		}
@@ -211,26 +212,28 @@ func (mdb *SqlStorage[T]) Reduce(width, end Quant, reduce DataStorageReduce[T]) 
 
 		if quant - quant % width != curQuant || name != curName {
 			if len(bucket) > 0 {
-				// TODO: tags
-				err = reduce(curName, nil, curQuant, bucket)
-				if err != nil {
-					return err
+				for ts, buck := range bucket {
+					err = reduce(curName, splitTagsString(ts), curQuant, buck)
+					if err != nil {
+						return err
+					}
 				}
 			}
 
 			curQuant = quant - quant % width
 			curName = name
-			bucket = make([]T, 0, 64)
+			bucket = make(map[string][]T)
 		}
 
-		bucket = append(bucket, *val)
+		bucket[tags] = append(bucket[tags], *val)
 	}
 
 	if len(bucket) > 0 {
-		// TODO: tags
-		err = reduce(curName, nil, curQuant, bucket)
-		if err != nil {
-			return err
+		for ts, buck := range bucket {
+			err = reduce(curName, splitTagsString(ts), curQuant, buck)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

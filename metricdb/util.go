@@ -76,3 +76,23 @@ func splitNameTags(nmt string) (string, []string) {
 	res := strings.Split(nmt, "#")
 	return res[0], res[1:]
 }
+
+// Split tags and return tag array
+func splitTagsString(tags string) []string {
+	res := strings.Split(tags, "#")
+	l := 0
+	for ; l < len(res); l++ {
+		if res[l] != "" {
+			break
+		}
+	}
+
+	r := l
+	for ; r < len(res); r++ {
+		if res[r] == "" {
+			break
+		}
+	}
+
+	return res[l: r]
+}
